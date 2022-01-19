@@ -375,7 +375,12 @@ pure
                 debug writeln(v.value);
                 //Means that the array has same value on every index
                 if(v.value[$-1] != ']')
-                    ret = to!(typeof(T.init[0]))(v.value);
+                {
+                    static if(isStaticArray!T)
+                        ret = to!(typeof(T.init[0]))(v.value);
+                    else
+                        assert(0, "Tried to assign a single value to a dynamic array");
+                }
                 //Parse the values  
                 else while(i < cast(int)v.value.length - 1)
                 {
