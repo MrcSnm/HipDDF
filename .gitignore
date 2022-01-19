@@ -1,0 +1,15 @@
+.dub
+docs.json
+__dummy.html
+docs/
+/hipddf
+hipddf.so
+hipddf.dylib
+hipddf.dll
+hipddf.a
+hipddf.lib
+hipddf-test-*
+*.exe
+*.o
+*.obj
+*.lst
