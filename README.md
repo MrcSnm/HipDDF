@@ -4,6 +4,12 @@ Hipreme D Data Format. Data format based on the D programming language.
 This repository is not update directly. It is an adaptation from the HipDDF inside the [Hipreme Engine](https://github.com/MrcSnm/HipremeEngine). As the Hipreme Engine uses its own standard lib. So, there's
 little adaptation to the original version.
 
+## Why should I use it?:
+
+    1. Type safe data format with the D programming language syntax. Defining the data will be more straightforward as there will be no brain context switch.
+    2. If you wish to save your data into your binary directly, you could easily adapt your code to accept it as a D source instead.
+
+
 
 An example of how a hipddf should look like is:
 
