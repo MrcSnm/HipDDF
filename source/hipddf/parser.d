@@ -46,7 +46,9 @@ struct HipDDFToken
 struct HipDDFTokenizer
 {
     string str;
+    string filename;
     ulong pos;
+    uint line;
 
     /** Returns str[pos] */
     pragma(inline) @nogc nothrow @safe char get(){return str[pos];}
@@ -64,11 +66,16 @@ private void advanceWhitespace(HipDDFTokenizer* tokenizer)
     while(tokenizer.restLength > 0)
     {
         if(isWhitespace(tokenizer.get))
+        {
+            if(tokenizer.get == '\n')
+                tokenizer.line++;
             tokenizer.pos++;
-        else if(tokenizer.get == '/' && tokenizer.restLength > 1 && tokenizer.get == '/')
+        }
+        else if(tokenizer.get == '/' && tokenizer.restLength > 1 && tokenizer.next == '/')
         {
             while(!isEndOfLine(tokenizer.get))
                 tokenizer.pos++;
+            tokenizer.line++;
         }
         else if(tokenizer.get == '/' && tokenizer.restLength > 1 && (tokenizer.next == '*' || tokenizer.next == '+'))
         {
@@ -76,6 +83,8 @@ private void advanceWhitespace(HipDDFTokenizer* tokenizer)
             while(tokenizer.restLength && 
             !((tokenizer.get == '*' || tokenizer.get == '+') && (tokenizer.restLength > 1 && tokenizer.next == '/')))
             {
+                if(tokenizer.get == '\n')
+                    tokenizer.line++;
                 tokenizer.pos++;
             }
             tokenizer.pos+= 2;
@@ -128,12 +137,24 @@ HipDDFToken getToken(HipDDFTokenizer* tokenizer)
                 ret.str = tokenizer.str[start..tokenizer.pos];
                 ret.type = HipDDFTokenType.numberLiteral;
             }
-            else if(isAlpha(C)) //Check symbol
+            else if(isAlpha(C) || C == '_') //Check symbol
             {
                 while(tokenizer.get.isNumeric || tokenizer.get.isAlpha || tokenizer.get =='_')
                     tokenizer.pos++;
                 ret.str = tokenizer.str[start..tokenizer.pos];
-                ret.type = HipDDFTokenType.symbol;
+                //I'll consider creating a function for that if it happens to have more special symbols
+                if(ret.str == "__LINE__")
+                {
+                    ret.str = to!string(tokenizer.line);
+                    ret.type = HipDDFTokenType.numberLiteral;
+                }
+                else if(ret.str == "__FILE__")
+                {
+                    ret.str = tokenizer.filename;
+                    ret.type = HipDDFTokenType.stringLiteral;
+                }
+                else
+                    ret.type = HipDDFTokenType.symbol;
             }
             else
             {
@@ -348,6 +369,7 @@ struct HipDDFVarInternal
 struct HipDDFObjectInternal
 {
     string symbol;
+    string filename;
     HipDDFVarInternal[string] variables;
 }
 

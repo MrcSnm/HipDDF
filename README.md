@@ -48,12 +48,12 @@ void main()
     - Basic Types
     - Arrays
     - Associative Arrays
-    - 
-#### Current Version: 0.2
+    - __FILE__ and __LINE__
+#### Current Version: 0.3
 
 ## Planned Features:
     0.2 : Associative array support
-    0.3 : Data parsing only
+    0.3 : __LINE__ and __FILE__(?)
     0.4 : Concatenation support for string and arrays
     0.5 : Arithmetic operations
     0.6 : Self reference values

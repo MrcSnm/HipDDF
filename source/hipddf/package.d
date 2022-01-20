@@ -2,9 +2,10 @@ module hipddf;
 /** 
  * HipDDF = Hipreme D Data Format, based on the D syntax 
  *
- *  Version: 0.2:
+ *  Version: 0.3:
  *      - Supports basic types, and arrays.
  *      - Associative array support
+ *      - __FILE__ and __LINE__ keywords
  *
  *  Planned to future:
  *      1.0 : Data parsing only
@@ -20,6 +21,9 @@ public import hipddf.types;
 
 
 enum HipDDFSample = q{
+    /**
+    *   HipDDF sample of how it works. This file is being used as a test too for each supported thing.
+    */
     int[] testArray_Multi = 
     [
         -1,
@@ -27,6 +31,7 @@ enum HipDDFSample = q{
         -3
     ];
 
+    int lineCheckerTest = __LINE__;
     int[] testArray_Single = [1, 4, 30, 90, 99];
     string abilityType = "Test helper";
 
