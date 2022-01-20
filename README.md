@@ -47,8 +47,9 @@ void main()
 ## Supported Features:
     - Basic Types
     - Arrays
+    - Associative Arrays
     - 
-#### Current Version: 0.1
+#### Current Version: 0.2
 
 ## Planned Features:
     0.2 : Associative array support

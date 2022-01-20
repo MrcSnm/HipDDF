@@ -1,5 +1,4 @@
 module hipddf.types;
-import std.traits:isArray;
 
 import hipddf.parser:
     parserVarType,

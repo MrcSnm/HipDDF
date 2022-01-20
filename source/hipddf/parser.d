@@ -7,6 +7,7 @@ enum HipDDFTokenType
 {
     assignment,
     comma,
+    colon,
     semicolon,
     openParenthesis,
     closeParenthesis,
@@ -96,16 +97,17 @@ HipDDFToken getToken(HipDDFTokenizer* tokenizer)
 
     switch(C)
     {
-        case '=': {ret.type = HipDDFTokenType.assignment; break;}
-        case ',': {ret.type = HipDDFTokenType.comma; break;}
-        case ';': {ret.type = HipDDFTokenType.semicolon; break;}
-        case '(': {ret.type = HipDDFTokenType.openParenthesis; break;}
-        case ')': {ret.type = HipDDFTokenType.openParenthesis; break;}
-        case '[': {ret.type = HipDDFTokenType.openSquareBrackets; break;}
-        case ']': {ret.type = HipDDFTokenType.closeSquareBrackets; break;}
-        case '{': {ret.type = HipDDFTokenType.openCurlyBrackets; break;}
-        case '}': {ret.type = HipDDFTokenType.closeCurlyBrackets; break;}
-        case '\0': {ret.type = HipDDFTokenType.endOfStream; break;}
+        case '=':  {ret.str = "=";ret.type = HipDDFTokenType.assignment; break;}
+        case ',':  {ret.str = ",";ret.type = HipDDFTokenType.comma; break;}
+        case ';':  {ret.str = ";";ret.type = HipDDFTokenType.semicolon; break;}
+        case ':':  {ret.str = ":";ret.type = HipDDFTokenType.colon; break;}
+        case '(':  {ret.str = "(";ret.type = HipDDFTokenType.openParenthesis; break;}
+        case ')':  {ret.str = ")";ret.type = HipDDFTokenType.openParenthesis; break;}
+        case '[':  {ret.str = "[";ret.type = HipDDFTokenType.openSquareBrackets; break;}
+        case ']':  {ret.str = "]";ret.type = HipDDFTokenType.closeSquareBrackets; break;}
+        case '{':  {ret.str = "{";ret.type = HipDDFTokenType.openCurlyBrackets; break;}
+        case '}':  {ret.str = "}";ret.type = HipDDFTokenType.closeCurlyBrackets; break;}
+        case '\0':{ret.str = "\0";ret.type = HipDDFTokenType.endOfStream; break;}
         case '"':
 
             while(tokenizer.restLength && tokenizer.get != '"')
@@ -115,7 +117,7 @@ HipDDFToken getToken(HipDDFTokenizer* tokenizer)
                 tokenizer.pos++;
             }
             tokenizer.pos++; //Advance the '"'
-            ret.str = tokenizer.str[start..tokenizer.pos];
+            ret.str = tokenizer.str[start+1..tokenizer.pos-1]; //Remove the ""
             ret.type = HipDDFTokenType.stringLiteral;
             break;
         default:
@@ -221,21 +223,30 @@ HipDDFToken parseAssignment(ref HipDDFVarInternal variable, HipDDFToken token, H
             case HipDDFTokenType.openSquareBrackets:
                 variable.value = "[";
                 token = getToken(tokenizer);
-                int arrayCount = 0;
-                while(
-                    token.type.isLiteral || 
-                    token.type == HipDDFTokenType.comma )
+                if(variable.isAssociativeArray)
                 {
-                    if(token.type.isLiteral)
+                    while(token.type.isAssociativeArraySyntax)
                     {
                         variable.value~= token.str;
-                        arrayCount++;
+                        token = getToken(tokenizer);
                     }
-                    else if(token.type == HipDDFTokenType.comma)
-                        variable.value~= ",";
-                    token = getToken(tokenizer);
                 }
-                variable.length = arrayCount;
+                else
+                {
+                    int arrayCount = 0;
+                    while( token.type.isArraySyntax)
+                    {
+                        if(token.type.isLiteral)
+                        {
+                            variable.value~= token.str;
+                            arrayCount++;
+                        }
+                        else if(token.type == HipDDFTokenType.comma)
+                            variable.value~= ",";
+                        token = getToken(tokenizer);
+                    }
+                    variable.length = arrayCount;
+                }
                 assert(token.type == HipDDFTokenType.closeSquareBrackets, "Expected ], but received "~token.toString~
                 " on variable "~variable.symbol);
                 variable.value~="]";
@@ -271,10 +282,17 @@ HipDDFToken parseType(ref HipDDFVarInternal variable, HipDDFToken token, HipDDFT
                 else if(token.type == HipDDFTokenType.numberLiteral)
                 {
                     variable.type~= "["~token.str;
+                    variable.length = to!uint(token.str);
                     assert(requireToken(tokenizer, HipDDFTokenType.closeSquareBrackets, token), "Expected ], received "~token.toString);
                     variable.type~="]";
                     variable.isArray = true;
-                    variable.length = to!uint(token.str);
+                }
+                else if(token.type == HipDDFTokenType.symbol)
+                {
+                    variable.type~= "["~token.str;
+                    assert(requireToken(tokenizer, HipDDFTokenType.closeSquareBrackets, token), "Expected ], received "~token.toString);
+                    variable.type~="]";
+                    variable.isAssociativeArray = true;
                 }
                 assert(token.type == HipDDFTokenType.closeSquareBrackets, "Expected ], received "~token.toString);
                 assert(requireToken(tokenizer, HipDDFTokenType.symbol, token), "Expected a variable name, received "~token.toString);
@@ -301,7 +319,7 @@ private HipDDFToken findToken(HipDDFTokenizer* tokenizer, HipDDFTokenType type)
     return HipDDFToken("", HipDDFTokenType.endOfStream);
 }
 
-pragma(inline) bool isLiteral(HipDDFTokenType type)
+pragma(inline) pure nothrow @safe @nogc bool isLiteral(HipDDFTokenType type)
 {
     return type == HipDDFTokenType.numberLiteral || type == HipDDFTokenType.stringLiteral;
 }
@@ -322,6 +340,7 @@ struct HipDDFVarInternal
     string value;
     string symbol;
     bool isArray;
+    bool isAssociativeArray;
     uint length;
     pure string toString() const {return type~" "~symbol~" = "~value;}
 }
@@ -337,6 +356,14 @@ pragma(inline) bool isAlpha(char c) pure nothrow @safe @nogc{return (c >= 'a' &&
 pragma(inline) bool isEndOfLine(char c) pure nothrow @safe @nogc{return c == '\n' || c == '\r';}
 pragma(inline) bool isNumeric(char c) pure nothrow @safe @nogc{return (c >= '0' && c <= '9') || (c == '-');}
 pragma(inline) bool isWhitespace(char c) pure nothrow @safe @nogc{return (c == ' ' || c == '\t' || c.isEndOfLine);}
+pragma(inline) bool isAssociativeArraySyntax(HipDDFTokenType type) pure nothrow @safe @nogc
+{
+    return type.isLiteral || type == HipDDFTokenType.colon || type == HipDDFTokenType.comma;
+}
+pragma(inline) bool isArraySyntax(HipDDFTokenType type) pure nothrow @safe @nogc
+{
+    return type.isLiteral  || type == HipDDFTokenType.comma;
+}
 
 pure
 {
@@ -361,7 +388,7 @@ pure
         HipDDFVarInternal* v = name in obj.variables;
         if(v !is null)
         {
-            import std.traits:isArray, isStaticArray;
+            import std.traits:isArray, isStaticArray, isAssociativeArray, KeyType, ValueType;
             assert(v.type == T.stringof, "Data expected '"~T.stringof~"' differs from the HipDDF : '"~v.toString~"'");
 
             static if(!is(T == string) && isArray!T)
@@ -371,8 +398,6 @@ pure
                 string stringVal = "";
                 int i = 1;
                 int index = 0;
-                import std.stdio;
-                debug writeln(v.value);
                 //Means that the array has same value on every index
                 if(v.value[$-1] != ']')
                 {
@@ -396,6 +421,44 @@ pure
                     }
                     i++;
                 }
+                return ret;
+            }
+            else static if(isAssociativeArray!T)
+            {
+                assert(v.isAssociativeArray, "Tried to get associative array from variable "~v.toString);
+                int i = 1;
+                string keyString = "";
+                string valueString = "";
+                bool isCheckingForKey = true;
+                T ret;
+                scope void insertAA()
+                {
+                    ret[to!(KeyType!T)(keyString)] = to!(ValueType!T)(valueString);
+                    keyString = "";
+                    valueString = "";
+                }
+                while(i < cast(int)v.value.length - 1)
+                {
+                    switch(v.value[i])
+                    {
+                        case ',':
+                            isCheckingForKey = true;
+                            insertAA();
+                            break;
+                        case ':':
+                            isCheckingForKey = false;
+                            break;
+                        default:
+                            if(isCheckingForKey)
+                                keyString~=v.value[i];
+                            else
+                                valueString~=v.value[i];
+                            break;
+                    }
+                    i++;
+                }
+                if(keyString && valueString)
+                    insertAA();
                 return ret;
             }
             else
