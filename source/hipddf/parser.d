@@ -49,6 +49,7 @@ struct HipDDFTokenizer
     string filename;
     ulong pos;
     uint line;
+    HipDDFObjectInternal* obj;
 
     /** Returns str[pos] */
     pragma(inline) @nogc nothrow @safe char get(){return str[pos];}
@@ -191,6 +192,7 @@ HipDDFObject parseHipDDF(string hdf)
     HipDDFObjectInternal* obj = new HipDDFObjectInternal("");
     HipDDFTokenizer tokenizer;
     tokenizer.str = hdf;
+    tokenizer.obj = obj;
 
     HipDDFToken tk = HipDDFToken("", HipDDFTokenType.unknown);
     HipDDFState state = HipDDFState.type;
@@ -241,6 +243,12 @@ HipDDFToken parseAssignment(ref HipDDFVarInternal variable, HipDDFToken token, H
                     variable.length = cast(uint)token.str.length;
                 token = findToken(tokenizer,  HipDDFTokenType.symbol);
                 return token;
+            case HipDDFTokenType.symbol:
+                assert((token.str in tokenizer.obj.variables) !is null, 
+                "Variable '"~token.str~"' is not defined at line "~to!string(tokenizer.line));
+                variable.value = tokenizer.obj.variables[token.str].value;
+                token = findToken(tokenizer, HipDDFTokenType.symbol);
+                return token;
             case HipDDFTokenType.openSquareBrackets:
                 variable.value = "[";
                 token = getToken(tokenizer);
@@ -274,6 +282,8 @@ HipDDFToken parseAssignment(ref HipDDFVarInternal variable, HipDDFToken token, H
                 token = findToken(tokenizer, HipDDFTokenType.symbol);
 
                 return token;
+            
+            
             default: assert(0,  "Unexpected token after assignment: "~token.toString);
         }
     }

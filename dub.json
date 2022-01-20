@@ -5,5 +5,12 @@
 	"copyright": "Copyright © 2022, Hipreme",
 	"description": "Hipreme D Data format, a Markup/Data format based on the D programming language",
 	"license": "proprietary",
-	"name": "hipddf"
+	"name": "hipddf", 
+	"targetType": "library",
+	"sourcePaths": [
+		"source"
+	], 
+	"importPaths": [
+		"source"
+	]
 }

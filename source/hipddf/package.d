@@ -31,6 +31,13 @@ enum HipDDFSample = q{
         -3
     ];
 
+    int a = 500;
+    int b = a;
+
+    string multiLineStringTest = "
+    Lorem ipsum this is really boring.
+    " //Look! Optional semicolon (maybe only for now)
+
     int lineCheckerTest = __LINE__;
     int[] testArray_Single = [1, 4, 30, 90, 99];
     string abilityType = "Test helper";

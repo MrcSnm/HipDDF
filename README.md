@@ -14,6 +14,9 @@ little adaptation to the original version.
 An example of how a hipddf should look like is:
 
 ```d
+/**
+*   HipDDF sample of how it works. This file is being used as a test too for each supported thing.
+*/
 int[] testArray_Multi = 
 [
     -1,
@@ -21,8 +24,21 @@ int[] testArray_Multi =
     -3
 ];
 
+int a = 500;
+int b = a;
+
+string multiLineStringTest = "
+Lorem ipsum this is really boring.
+" //Look! Optional semicolon (maybe only for now)
+
+int lineCheckerTest = __LINE__;
 int[] testArray_Single = [1, 4, 30, 90, 99];
 string abilityType = "Test helper";
+
+int[string] testAA = [
+    "ABC" : 500,
+    "Hundred" : 100
+];
 
 int[4] testArray_Bounded = [
     10,20,30,40
@@ -49,13 +65,15 @@ void main()
     - Arrays
     - Associative Arrays
     - __FILE__ and __LINE__
-#### Current Version: 0.3
+    - Assign variable to an existing symbol (order of definition matters)
+  
+#### Current Version: 0.4
 
 ## Planned Features:
     0.2 : Associative array support
     0.3 : __LINE__ and __FILE__(?)
-    0.4 : Concatenation support for string and arrays
+    0.4 : Self reference values
     0.5 : Arithmetic operations
-    0.6 : Self reference values
+    0.6 : Concatenation support for string and arrays
     1.0 : Aliases 
     1.1 : Struct declarations
