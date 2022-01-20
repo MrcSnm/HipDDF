@@ -1,4 +1,5 @@
 module hipddf.parser;
+import std.stdio;
 import hipddf.types;
 import std.conv: to;
 
@@ -19,13 +20,17 @@ enum HipDDFTokenType
     symbol,
     stringLiteral,
     numberLiteral,
-    unknown
+    unknown,
+    error
 }
+
+
 
 struct HipDDFToken
 {
     string str;
     HipDDFTokenType type;
+    static HipDDFToken error(){return HipDDFToken("Error", HipDDFTokenType.error);}
 
     string toString()
     {
@@ -43,6 +48,14 @@ struct HipDDFToken
     }
 }
 
+struct HipDDFStruct
+{
+    string name;
+    string[] types;
+    string[] symbols;
+}
+
+
 struct HipDDFTokenizer
 {
     string str;
@@ -50,6 +63,14 @@ struct HipDDFTokenizer
     ulong pos;
     uint line;
     HipDDFObjectInternal* obj;
+    string[] err;
+
+    void setError(string err)
+    {
+        this.err~= err;
+    }
+    bool hasVar(string str){return obj.hasVar(str);}
+    HipDDFVarInternal* getVar(string str){return str in obj.variables;}
 
     /** Returns str[pos] */
     pragma(inline) @nogc nothrow @safe char get(){return str[pos];}
@@ -57,9 +78,14 @@ struct HipDDFTokenizer
     pragma(inline) @nogc nothrow @safe char next(){return str[pos+1];}
     /** Returns str.length - pos */
     pragma(inline) @nogc nothrow @safe int restLength(){return cast(int)(str.length - pos);}
-
-
 }
+
+alias HipDDFKeywordParse = HipDDFToken function(HipDDFTokenizer* tokenizer);
+alias HipDDFBuiltinTypeCheck = bool function (string type, HipDDFToken tk);
+
+immutable(HipDDFKeywordParse[string]) keywords;
+immutable(HipDDFBuiltinTypeCheck[string]) builtinTypes;
+
 
 nothrow @safe @nogc
 private void advanceWhitespace(HipDDFTokenizer* tokenizer)
@@ -112,7 +138,7 @@ HipDDFToken getToken(HipDDFTokenizer* tokenizer)
         case ';':  {ret.str = ";";ret.type = HipDDFTokenType.semicolon; break;}
         case ':':  {ret.str = ":";ret.type = HipDDFTokenType.colon; break;}
         case '(':  {ret.str = "(";ret.type = HipDDFTokenType.openParenthesis; break;}
-        case ')':  {ret.str = ")";ret.type = HipDDFTokenType.openParenthesis; break;}
+        case ')':  {ret.str = ")";ret.type = HipDDFTokenType.closeParenthesis; break;}
         case '[':  {ret.str = "[";ret.type = HipDDFTokenType.openSquareBrackets; break;}
         case ']':  {ret.str = "]";ret.type = HipDDFTokenType.closeSquareBrackets; break;}
         case '{':  {ret.str = "{";ret.type = HipDDFTokenType.openCurlyBrackets; break;}
@@ -144,18 +170,11 @@ HipDDFToken getToken(HipDDFTokenizer* tokenizer)
                     tokenizer.pos++;
                 ret.str = tokenizer.str[start..tokenizer.pos];
                 //I'll consider creating a function for that if it happens to have more special symbols
-                if(ret.str == "__LINE__")
-                {
-                    ret.str = to!string(tokenizer.line);
-                    ret.type = HipDDFTokenType.numberLiteral;
-                }
-                else if(ret.str == "__FILE__")
-                {
-                    ret.str = tokenizer.filename;
-                    ret.type = HipDDFTokenType.stringLiteral;
-                }
-                else
+                auto kwParse = ret.str in keywords;
+                if(kwParse is null)
                     ret.type = HipDDFTokenType.symbol;
+                else
+                    ret = (*kwParse)(tokenizer);
             }
             else
             {
@@ -187,11 +206,12 @@ private enum HipDDFState
 *   4: Data
 *   By following this order, the data format will be really simple to follow.
 */
-HipDDFObject parseHipDDF(string hdf)
+HipDDFObject parseHipDDF(string hdf, string filename = __FILE__)
 {
     HipDDFObjectInternal* obj = new HipDDFObjectInternal("");
     HipDDFTokenizer tokenizer;
     tokenizer.str = hdf;
+    tokenizer.filename = filename;
     tokenizer.obj = obj;
 
     HipDDFToken tk = HipDDFToken("", HipDDFTokenType.unknown);
@@ -223,71 +243,156 @@ HipDDFObject parseHipDDF(string hdf)
                 state = HipDDFState.type;
                 break;
         }
+        if(tk.type == HipDDFTokenType.error)
+        {
+            import std.stdio;
+            writeln(tokenizer.err);
+            break;
+        }
     }
     return cast(HipDDFObject)obj;
 }
 
 
+/**
+*   Checks if the type passed matches the string containing the value
+*/
+bool checkTypeMatch(string type, string str)
+{
+    if(type == "string")
+        return str[0].isAlpha || str[0] == '_';
+    else if(type == "int" || type == "float")
+        return str[0].isNumeric;
+    return false;
+}
+
+bool checkTypeMatch(HipDDFVarInternal variable, HipDDFToken tk)
+{
+    immutable(HipDDFBuiltinTypeCheck*) chk = variable.type in builtinTypes;
+    if(chk !is null)
+        return (*chk)(variable.type, tk);
+    return false;
+}
+
+HipDDFToken parseValue(ref HipDDFVarInternal variable, HipDDFToken token, HipDDFTokenizer* tokenizer)
+{
+    switch(token.type)
+    {
+        case HipDDFTokenType.stringLiteral:
+        case HipDDFTokenType.numberLiteral:
+            variable.value = token.str;
+            if(token.type == HipDDFTokenType.stringLiteral)
+                variable.length = cast(uint)token.str.length;
+            return token;
+        case HipDDFTokenType.openCurlyBrackets:
+            token = parseStruct(variable, token, tokenizer);
+            return token;
+        case HipDDFTokenType.symbol:
+            if(token.isStructLiteral(tokenizer))
+                token = parseStruct(variable, token, tokenizer);
+            else
+            {
+                assert(tokenizer.hasVar(token.str),
+                "Variable '"~token.str~"' is not defined at line "~to!string(tokenizer.line));
+                variable.value = tokenizer.getVar(token.str).value;
+            }
+            return token;
+        case HipDDFTokenType.openSquareBrackets:
+            variable.value = "[";
+            token = getToken(tokenizer);
+            if(variable.isAssociativeArray)
+            {
+                while(token.type.isAssociativeArraySyntax)
+                {
+                    variable.value~= token.str;
+                    token = getToken(tokenizer);
+                }
+            }
+            else
+            {
+                int arrayCount = 0;
+                while( token.type.isArraySyntax)
+                {
+                    if(token.type.isLiteral)
+                    {
+                        variable.value~= token.str;
+                        arrayCount++;
+                    }
+                    else if(token.type == HipDDFTokenType.comma)
+                        variable.value~= ",";
+                    token = getToken(tokenizer);
+                }
+                variable.length = arrayCount;
+            }
+            assert(token.type == HipDDFTokenType.closeSquareBrackets, "Expected ], but received "~token.toString~
+            " on variable "~variable.symbol);
+            variable.value~="]";
+            return token;
+        default: assert(0,  "Unexpected token after assignment: "~token.toString);
+    }
+}
 HipDDFToken parseAssignment(ref HipDDFVarInternal variable, HipDDFToken token, HipDDFTokenizer* tokenizer)
 {
     assert(token.type == HipDDFTokenType.assignment, "Tried to parse a non assigment token: "~token.toString);
     for(;;)
     {
         token = getToken(tokenizer);
-        switch(token.type)
-        {
-            case HipDDFTokenType.stringLiteral:
-            case HipDDFTokenType.numberLiteral:
-                variable.value = token.str;
-                if(token.type == HipDDFTokenType.stringLiteral)
-                    variable.length = cast(uint)token.str.length;
-                token = findToken(tokenizer,  HipDDFTokenType.symbol);
-                return token;
-            case HipDDFTokenType.symbol:
-                assert((token.str in tokenizer.obj.variables) !is null, 
-                "Variable '"~token.str~"' is not defined at line "~to!string(tokenizer.line));
-                variable.value = tokenizer.obj.variables[token.str].value;
-                token = findToken(tokenizer, HipDDFTokenType.symbol);
-                return token;
-            case HipDDFTokenType.openSquareBrackets:
-                variable.value = "[";
-                token = getToken(tokenizer);
-                if(variable.isAssociativeArray)
-                {
-                    while(token.type.isAssociativeArraySyntax)
-                    {
-                        variable.value~= token.str;
-                        token = getToken(tokenizer);
-                    }
-                }
-                else
-                {
-                    int arrayCount = 0;
-                    while( token.type.isArraySyntax)
-                    {
-                        if(token.type.isLiteral)
-                        {
-                            variable.value~= token.str;
-                            arrayCount++;
-                        }
-                        else if(token.type == HipDDFTokenType.comma)
-                            variable.value~= ",";
-                        token = getToken(tokenizer);
-                    }
-                    variable.length = arrayCount;
-                }
-                assert(token.type == HipDDFTokenType.closeSquareBrackets, "Expected ], but received "~token.toString~
-                " on variable "~variable.symbol);
-                variable.value~="]";
-                token = findToken(tokenizer, HipDDFTokenType.symbol);
-
-                return token;
-            
-            
-            default: assert(0,  "Unexpected token after assignment: "~token.toString);
-        }
+        token = parseValue(variable, token, tokenizer);
+        token = findToken(tokenizer, HipDDFTokenType.symbol);
+        return token;
     }
     assert(0, "Unknown error occurred for token "~token.toString);
+}
+
+HipDDFToken parseStruct(ref HipDDFVarInternal variable, HipDDFToken token, HipDDFTokenizer* tokenizer)
+{
+    if(token.isStructLiteral(tokenizer) && token.str == variable.type)
+    {
+        HipDDFStruct structure = tokenizer.obj.structs[token.str];
+        assert(requireToken(tokenizer, HipDDFTokenType.openParenthesis, token),
+        "Expected a '(' after the "~token.str~" on line "~to!string(tokenizer.line));
+        int typeIndex = 0;
+        HipDDFToken lastToken;
+
+        while(token.type != HipDDFTokenType.closeParenthesis)
+        {
+            if(token.type == HipDDFTokenType.comma)
+            {
+                assert(checkTypeMatch(structure.types[typeIndex], lastToken.str));
+                typeIndex++;
+            }
+            lastToken = token;
+            variable.value~= token.str;
+            token = getToken(tokenizer);
+        }
+        variable.value~=")";
+        return token;
+    }
+    else if(token.type == HipDDFTokenType.openCurlyBrackets)
+    {
+        HipDDFStruct structure = tokenizer.obj.structs[variable.type];
+        while(token.type != HipDDFTokenType.closeCurlyBrackets)
+        {
+            if(!requireToken(tokenizer, HipDDFTokenType.symbol, token) && token.type != HipDDFTokenType.closeCurlyBrackets)
+            {
+                tokenizer.setError("Expected a symbol on struct initialization on line "~to!string(tokenizer.line));
+                return HipDDFToken.error;
+            }
+            else
+            {
+                HipDDFToken memberToken = token;
+                if(!requireToken(tokenizer, HipDDFTokenType.colon, token))
+                {
+                    tokenizer.setError("Expected a : after symbol "~memberToken.str ~ "on line "~to!string(tokenizer.line));
+                    return HipDDFToken.error;
+                }
+                token = getToken(tokenizer);
+                //Here could possibly be any value
+                return parseStruct(variable, token, tokenizer);
+            }
+        }
+    }
+    return HipDDFToken("", HipDDFTokenType.error);
 }
 
 /**
@@ -350,10 +455,7 @@ private HipDDFToken findToken(HipDDFTokenizer* tokenizer, HipDDFTokenType type)
     return HipDDFToken("", HipDDFTokenType.endOfStream);
 }
 
-pragma(inline) pure nothrow @safe @nogc bool isLiteral(HipDDFTokenType type)
-{
-    return type == HipDDFTokenType.numberLiteral || type == HipDDFTokenType.stringLiteral;
-}
+
 /**
 *   Mainly a syntax creator
 */
@@ -374,6 +476,22 @@ struct HipDDFVarInternal
     bool isAssociativeArray;
     uint length;
     pure string toString() const {return type~" "~symbol~" = "~value;}
+    pure string getKeyType() const
+    {
+        if(!isAssociativeArray || type == "") return "";
+        int i = cast(int)type.length - 1;
+        while(type[i] != '['){i--;}
+
+        return type[i+1..$-1];
+    }
+    pure string getValueType() const
+    {
+        if(!isAssociativeArray || type == "") return "";
+        int i = cast(int)type.length - 1;
+        while(type[i] != '['){i--;}
+
+        return type[0..i];
+    }
 }
 
 struct HipDDFObjectInternal
@@ -381,13 +499,91 @@ struct HipDDFObjectInternal
     string symbol;
     string filename;
     HipDDFVarInternal[string] variables;
+    HipDDFStruct[string] structs;
+    bool hasVar(string str){return (str in variables) !is null;}
+}
+
+shared static this()
+{
+    keywords = 
+    [
+        "__LINE__" : function HipDDFToken (HipDDFTokenizer* tokenizer)
+        {
+            return HipDDFToken(to!string(tokenizer.line), HipDDFTokenType.numberLiteral);
+        },
+        "__FILE__" : function HipDDFToken (HipDDFTokenizer* tokenizer)
+        {
+            return HipDDFToken(tokenizer.filename, HipDDFTokenType.stringLiteral);
+        },
+        "struct" : function HipDDFToken (HipDDFTokenizer* tokenizer)
+        {
+            HipDDFToken tk;
+            if(!requireToken(tokenizer, HipDDFTokenType.symbol, tk))
+                tokenizer.setError("Expected symbol after struct keyword, received "~tk.toString);
+            string structName = tk.str;
+            if(!requireToken(tokenizer, HipDDFTokenType.openCurlyBrackets, tk))
+                tokenizer.setError("Expected '{', received "~tk.toString);
+            HipDDFStruct structure;
+            structure.name = structName;
+            while(tk.type != HipDDFTokenType.closeCurlyBrackets)
+            {
+                string type;
+                string sym;
+                if(!requireToken(tokenizer, HipDDFTokenType.symbol, tk))
+                {
+                    tokenizer.setError("Expected type, received "~tk.toString);
+                    break;
+                }
+                type = tk.str;
+                if(!requireToken(tokenizer, HipDDFTokenType.symbol, tk))
+                {
+                    tokenizer.setError("Expected symbol declaration after type, received "~tk.toString);
+                    break;
+                }
+                sym = tk.str;
+                if(!requireToken(tokenizer, HipDDFTokenType.semicolon, tk))
+                {
+                    tokenizer.setError("Expected ';', received " ~tk.toString);
+                    break;
+                }
+                structure.types~= type;
+                structure.symbols~= sym;
+            }
+            tokenizer.obj.structs[structure.name] = structure;
+            return getToken(tokenizer);
+        }
+    ];
+
+    builtinTypes = [
+        "int" : function bool(string type, HipDDFToken tk)
+        {
+            return tk.type == HipDDFTokenType.numberLiteral;
+        },
+        "float" : function bool(string type, HipDDFToken tk)
+        {
+            return tk.type == HipDDFTokenType.numberLiteral;
+        },
+        "string" : function bool(string type, HipDDFToken tk)
+        {
+            return tk.type == HipDDFTokenType.stringLiteral;
+        }
+    ];
 }
 
 
+///In this step, the token is already checked if it was a symbol
+pragma(inline) bool isStructLiteral(HipDDFToken tk, HipDDFTokenizer* tokenizer)
+{
+    return (tk.str in tokenizer.obj.structs) !is null;
+}
 pragma(inline) bool isAlpha(char c) pure nothrow @safe @nogc{return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');}
 pragma(inline) bool isEndOfLine(char c) pure nothrow @safe @nogc{return c == '\n' || c == '\r';}
 pragma(inline) bool isNumeric(char c) pure nothrow @safe @nogc{return (c >= '0' && c <= '9') || (c == '-');}
 pragma(inline) bool isWhitespace(char c) pure nothrow @safe @nogc{return (c == ' ' || c == '\t' || c.isEndOfLine);}
+pragma(inline) bool isLiteral(HipDDFTokenType type) pure nothrow @safe @nogc
+{
+    return type == HipDDFTokenType.numberLiteral || type == HipDDFTokenType.stringLiteral;
+}
 pragma(inline) bool isAssociativeArraySyntax(HipDDFTokenType type) pure nothrow @safe @nogc
 {
     return type.isLiteral || type == HipDDFTokenType.colon || type == HipDDFTokenType.comma;
@@ -395,6 +591,43 @@ pragma(inline) bool isAssociativeArraySyntax(HipDDFTokenType type) pure nothrow 
 pragma(inline) bool isArraySyntax(HipDDFTokenType type) pure nothrow @safe @nogc
 {
     return type.isLiteral  || type == HipDDFTokenType.comma;
+}
+
+private T stringToStruct(T)(HipDDFStruct structure, string str)
+{
+    int typeIndex = 0;
+    static foreach(m; __traits(allMembers,  T))
+    {
+        if(typeof(__traits(getMember, T, m)).stringof != structure.types[typeIndex++])
+            return T.init;
+    }
+
+    T ret;
+    string tempValue = "";
+    typeIndex = 0;
+
+    for(int i = 1; i < cast(int)str.length; i++)
+    {
+        if(str[i] == ',' || str[i] == ')')
+        {
+            swt: switch(typeIndex)
+            {
+                static foreach(mIndex, m; __traits(allMembers, T))
+                {
+                    case mIndex:
+                        __traits(getMember, ret, m) = to!(typeof(__traits(getMember, ret, m)))(tempValue);
+                        break swt;
+                }
+                default:
+                    return ret;
+            }
+            tempValue = "";
+            typeIndex++;
+        }
+        else
+            tempValue~= str[i];
+    }
+    return ret;
 }
 
 pure
@@ -416,7 +649,8 @@ pure
     }
     T parserObjGet(T)(const(void*)hddfobj, string name)
     {
-        auto obj = cast(HipDDFObjectInternal*)hddfobj;
+        HipDDFObjectInternal* obj = cast(HipDDFObjectInternal*)hddfobj;
+
         HipDDFVarInternal* v = name in obj.variables;
         if(v !is null)
         {
@@ -493,6 +727,8 @@ pure
                     insertAA();
                 return ret;
             }
+            else static if(is(T == struct))
+                return stringToStruct!(T)(obj.structs[T.stringof], v.value);
             else
                 return to!T(v.value);
         }

@@ -7,6 +7,19 @@
 	"license": "proprietary",
 	"name": "hipddf", 
 	"targetType": "library",
+	"configurations": 
+	[
+		{
+			"name" : "lib",
+			"targetType": "library",
+			"versions": ["HipDDFLib"]
+		},
+		{
+			"name" : "test",
+			"targetType": "executable",
+			"versions": ["HipDDFTest"]
+		}
+	],
 	"sourcePaths": [
 		"source"
 	], 

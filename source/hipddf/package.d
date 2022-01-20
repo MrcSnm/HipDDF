@@ -21,6 +21,12 @@ public import hipddf.types;
 
 
 enum HipDDFSample = q{
+    struct Vector2
+    {
+        int a;
+        int b;
+    }
+
     /**
     *   HipDDF sample of how it works. This file is being used as a test too for each supported thing.
     */
@@ -31,8 +37,12 @@ enum HipDDFSample = q{
         -3
     ];
 
+    string filename = __FILE__;
+
     int a = 500;
     int b = a;
+
+    Vector2 v = Vector2(500, 200);
 
     string multiLineStringTest = "
     Lorem ipsum this is really boring.
