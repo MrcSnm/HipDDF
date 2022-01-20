@@ -353,16 +353,27 @@ HipDDFToken parseStruct(ref HipDDFVarInternal variable, HipDDFToken token, HipDD
         "Expected a '(' after the "~token.str~" on line "~to!string(tokenizer.line));
         int typeIndex = 0;
         HipDDFToken lastToken;
+        variable.value = "(";
+
+        //Advance the parenthesis for parsing values
+        token = getToken(tokenizer);
 
         while(token.type != HipDDFTokenType.closeParenthesis)
         {
             if(token.type == HipDDFTokenType.comma)
             {
-                assert(checkTypeMatch(structure.types[typeIndex], lastToken.str));
+                // assert(checkTypeMatch(structure.types[typeIndex], lastToken.str));
+                variable.value~= ",";
                 typeIndex++;
             }
+            else
+            {
+                HipDDFVarInternal temp;
+                temp.type = structure.types[typeIndex];
+                token = parseValue(temp, token, tokenizer);
+                variable.value~= temp.value;
+            }
             lastToken = token;
-            variable.value~= token.str;
             token = getToken(tokenizer);
         }
         variable.value~=")";
@@ -371,6 +382,8 @@ HipDDFToken parseStruct(ref HipDDFVarInternal variable, HipDDFToken token, HipDD
     else if(token.type == HipDDFTokenType.openCurlyBrackets)
     {
         HipDDFStruct structure = tokenizer.obj.structs[variable.type];
+        string[] values = new string[](structure.types.length);
+
         while(token.type != HipDDFTokenType.closeCurlyBrackets)
         {
             if(!requireToken(tokenizer, HipDDFTokenType.symbol, token) && token.type != HipDDFTokenType.closeCurlyBrackets)
@@ -381,6 +394,14 @@ HipDDFToken parseStruct(ref HipDDFVarInternal variable, HipDDFToken token, HipDD
             else
             {
                 HipDDFToken memberToken = token;
+                int i = 0;
+                while(i < structure.symbols.length && structure.symbols[i] != memberToken.str){i++;}
+                if(i == structure.symbols.length)
+                {
+                    tokenizer.setError("Member '"~memberToken.str~"' not found on type "~structure.name);
+                    return HipDDFToken.error;
+                }
+
                 if(!requireToken(tokenizer, HipDDFTokenType.colon, token))
                 {
                     tokenizer.setError("Expected a : after symbol "~memberToken.str ~ "on line "~to!string(tokenizer.line));
@@ -388,9 +409,21 @@ HipDDFToken parseStruct(ref HipDDFVarInternal variable, HipDDFToken token, HipDD
                 }
                 token = getToken(tokenizer);
                 //Here could possibly be any value
-                return parseStruct(variable, token, tokenizer);
+                HipDDFVarInternal tempVar;
+                token = parseValue(tempVar, token, tokenizer);
+                values[i] = tempVar.value;
             }
+            token = getToken(tokenizer);
         }
+        variable.value = "(";
+        foreach(i, v; values)
+        {
+            if(i)
+                variable.value~=",";
+            variable.value~= v;
+        }
+        variable.value~=")";
+        return token;
     }
     return HipDDFToken("", HipDDFTokenType.error);
 }

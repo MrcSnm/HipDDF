@@ -16,5 +16,5 @@ void main()
     writeln(obj.get!(int[string])("testAA"));
     writeln(obj.get!(int)("lineCheckerTest"));
     writeln(obj.get!(string)("filename"));
-    writeln(obj.get!(Vector2)("v"));
+    writeln(obj.get!(Vector2)("v3"));
 }

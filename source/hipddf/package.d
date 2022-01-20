@@ -43,6 +43,8 @@ enum HipDDFSample = q{
     int b = a;
 
     Vector2 v = Vector2(500, 200);
+    Vector2 v2 = {a : 3000, b : 5000}
+    Vector2 v3 = v;
 
     string multiLineStringTest = "
     Lorem ipsum this is really boring.
