@@ -17,6 +17,22 @@ An example of how a hipddf should look like is:
 /**
 *   HipDDF sample of how it works. This file is being used as a test too for each supported thing.
 */
+struct Vector2
+{
+    int a;
+    int b;
+}
+
+
+Vector2[] vArr = [
+    Vector2(50, 100),
+    Vector2(400, 300)
+];
+Vector2[] vArr2 = [
+    {b: 350, a: 100},
+    {a: 400,b: 300}
+];
+
 int[] testArray_Multi = 
 [
     -1,
@@ -24,8 +40,14 @@ int[] testArray_Multi =
     -3
 ];
 
+string filename = __FILE__;
+
 int a = 500;
 int b = a;
+
+Vector2 v = Vector2(500, 200);
+Vector2 v2 = {a : 3000, b : 5000}
+Vector2 v3 = v;
 
 string multiLineStringTest = "
 Lorem ipsum this is really boring.
@@ -39,6 +61,12 @@ int[string] testAA = [
     "ABC" : 500,
     "Hundred" : 100
 ];
+
+Vector2[string] testAAStruc = [
+    "hello" : Vector2(50, 100),
+    "world" : Vector2(200, 300)
+];
+
 
 int[4] testArray_Bounded = [
     10,20,30,40
