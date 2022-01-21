@@ -26,6 +26,16 @@ enum HipDDFSample = q{
         int a;
         int b;
     }
+    
+    
+    Vector2[] vArr = [
+        Vector2(50, 100),
+        Vector2(400, 300)
+    ];
+    Vector2[] vArr2 = [
+        {b: 350, a: 100},
+        {a: 400,b: 300}
+    ];
 
     /**
     *   HipDDF sample of how it works. This file is being used as a test too for each supported thing.
@@ -58,6 +68,17 @@ enum HipDDFSample = q{
         "ABC" : 500,
         "Hundred" : 100
     ];
+
+    // int[][] testMultiArr = [
+    //     [1, 2, 3],
+    //     [3, 2, 1]
+    // ];
+
+    Vector2[string] testAAStruc = [
+        "hello" : Vector2(50, 100),
+        "world" : Vector2(200, 300)
+    ];
+
 
     int[4] testArray_Bounded = [
         10,20,30,40

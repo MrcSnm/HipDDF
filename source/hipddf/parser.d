@@ -65,9 +65,16 @@ struct HipDDFTokenizer
     HipDDFObjectInternal* obj;
     string[] err;
 
-    void setError(string err)
+    HipDDFToken setError(string err, string file = __FILE__, string func = __PRETTY_FUNCTION__, uint line = __LINE__)
     {
-        this.err~= err;
+        string errFormat = err ~" at line "~to!string(this.line) ~" ("~file~":"~to!string(line)~")";
+        this.err~= errFormat;
+        return HipDDFToken(errFormat, HipDDFTokenType.error);
+    }
+    void showErrors()
+    {
+        foreach(e; err)
+            writeln(e);
     }
     bool hasVar(string str){return obj.hasVar(str);}
     HipDDFVarInternal* getVar(string str){return str in obj.variables;}
@@ -153,7 +160,7 @@ HipDDFToken getToken(HipDDFTokenizer* tokenizer)
                 tokenizer.pos++;
             }
             tokenizer.pos++; //Advance the '"'
-            ret.str = tokenizer.str[start+1..tokenizer.pos-1]; //Remove the ""
+            ret.str = tokenizer.str[start..tokenizer.pos]; //Remove the ""
             ret.type = HipDDFTokenType.stringLiteral;
             break;
         default:
@@ -233,7 +240,10 @@ HipDDFObject parseHipDDF(string hdf, string filename = __FILE__)
             case HipDDFState.symbol: //No parsing should be required for the symbol.
                 variable.symbol = tk.str;
                 state = HipDDFState.assignment;
-                assert(requireToken(&tokenizer, HipDDFTokenType.assignment, tk), "Expected variable assignment after the symbol '"~tk.toString);
+                if(!requireToken(&tokenizer, HipDDFTokenType.assignment, tk))
+                {
+                    tk = tokenizer.setError("Expected variable assignment after the symbol '"~tk.toString);
+                }
                 break;
             case HipDDFState.assignment:
                 tk = parseAssignment(variable, tk, &tokenizer);
@@ -245,8 +255,7 @@ HipDDFObject parseHipDDF(string hdf, string filename = __FILE__)
         }
         if(tk.type == HipDDFTokenType.error)
         {
-            import std.stdio;
-            writeln(tokenizer.err);
+            tokenizer.showErrors();
             break;
         }
     }
@@ -292,8 +301,10 @@ HipDDFToken parseValue(ref HipDDFVarInternal variable, HipDDFToken token, HipDDF
                 token = parseStruct(variable, token, tokenizer);
             else
             {
-                assert(tokenizer.hasVar(token.str),
-                "Variable '"~token.str~"' is not defined at line "~to!string(tokenizer.line));
+                if(!tokenizer.hasVar(token.str))
+                {
+                    return tokenizer.setError("Variable '"~token.str~"' is not defined at line "~to!string(tokenizer.line));
+                }
                 variable.value = tokenizer.getVar(token.str).value;
             }
             return token;
@@ -304,7 +315,18 @@ HipDDFToken parseValue(ref HipDDFVarInternal variable, HipDDFToken token, HipDDF
             {
                 while(token.type.isAssociativeArraySyntax)
                 {
-                    variable.value~= token.str;
+                    if(token.type == HipDDFTokenType.colon)
+                    {
+                        variable.value~=":";
+                        token = getToken(tokenizer);
+                        //Right value
+                        HipDDFVarInternal tempVar;
+                        tempVar.type = variable.getValueType;
+                        token = parseValue(tempVar, token, tokenizer);
+                        variable.value~= tempVar.value;
+                    }
+                    else
+                        variable.value~= token.str;
                     token = getToken(tokenizer);
                 }
             }
@@ -313,19 +335,28 @@ HipDDFToken parseValue(ref HipDDFVarInternal variable, HipDDFToken token, HipDDF
                 int arrayCount = 0;
                 while( token.type.isArraySyntax)
                 {
-                    if(token.type.isLiteral)
+                    if(token.type == HipDDFTokenType.comma)
                     {
-                        variable.value~= token.str;
+                        variable.value~= ",";
+                    }
+                    else if(token.type.isValueSyntax)
+                    {
+                        HipDDFVarInternal tempVar;
+                        tempVar.type = variable.getValueType;
+                        token = parseValue(tempVar, token, tokenizer);
+                        variable.value~= tempVar.value;
                         arrayCount++;
                     }
-                    else if(token.type == HipDDFTokenType.comma)
-                        variable.value~= ",";
+                    
                     token = getToken(tokenizer);
                 }
                 variable.length = arrayCount;
             }
-            assert(token.type == HipDDFTokenType.closeSquareBrackets, "Expected ], but received "~token.toString~
+            if(token.type != HipDDFTokenType.closeSquareBrackets)
+            {
+                return tokenizer.setError("Expected ], but received "~token.toString~
             " on variable "~variable.symbol);
+            }
             variable.value~="]";
             return token;
         default: assert(0,  "Unexpected token after assignment: "~token.toString);
@@ -333,15 +364,14 @@ HipDDFToken parseValue(ref HipDDFVarInternal variable, HipDDFToken token, HipDDF
 }
 HipDDFToken parseAssignment(ref HipDDFVarInternal variable, HipDDFToken token, HipDDFTokenizer* tokenizer)
 {
-    assert(token.type == HipDDFTokenType.assignment, "Tried to parse a non assigment token: "~token.toString);
-    for(;;)
+    if(token.type != HipDDFTokenType.assignment)
     {
-        token = getToken(tokenizer);
-        token = parseValue(variable, token, tokenizer);
-        token = findToken(tokenizer, HipDDFTokenType.symbol);
-        return token;
+        return tokenizer.setError("Tried to parse a non assigment token: "~token.toString);
     }
-    assert(0, "Unknown error occurred for token "~token.toString);
+    token = getToken(tokenizer);
+    token = parseValue(variable, token, tokenizer);
+    token = findToken(tokenizer, HipDDFTokenType.symbol);
+    return token;
 }
 
 HipDDFToken parseStruct(ref HipDDFVarInternal variable, HipDDFToken token, HipDDFTokenizer* tokenizer)
@@ -349,8 +379,10 @@ HipDDFToken parseStruct(ref HipDDFVarInternal variable, HipDDFToken token, HipDD
     if(token.isStructLiteral(tokenizer) && token.str == variable.type)
     {
         HipDDFStruct structure = tokenizer.obj.structs[token.str];
-        assert(requireToken(tokenizer, HipDDFTokenType.openParenthesis, token),
-        "Expected a '(' after the "~token.str~" on line "~to!string(tokenizer.line));
+        if(!requireToken(tokenizer, HipDDFTokenType.openParenthesis, token))
+        {
+            return tokenizer.setError("Expected a '(' after the "~token.str~" on line "~to!string(tokenizer.line));
+        }
         int typeIndex = 0;
         HipDDFToken lastToken;
         variable.value = "(";
@@ -387,26 +419,17 @@ HipDDFToken parseStruct(ref HipDDFVarInternal variable, HipDDFToken token, HipDD
         while(token.type != HipDDFTokenType.closeCurlyBrackets)
         {
             if(!requireToken(tokenizer, HipDDFTokenType.symbol, token) && token.type != HipDDFTokenType.closeCurlyBrackets)
-            {
-                tokenizer.setError("Expected a symbol on struct initialization on line "~to!string(tokenizer.line));
-                return HipDDFToken.error;
-            }
+                return tokenizer.setError("Expected a symbol on struct initialization ");
             else
             {
                 HipDDFToken memberToken = token;
                 int i = 0;
                 while(i < structure.symbols.length && structure.symbols[i] != memberToken.str){i++;}
                 if(i == structure.symbols.length)
-                {
-                    tokenizer.setError("Member '"~memberToken.str~"' not found on type "~structure.name);
-                    return HipDDFToken.error;
-                }
+                    return tokenizer.setError("Member '"~memberToken.str~"' not found on type "~structure.name);
 
                 if(!requireToken(tokenizer, HipDDFTokenType.colon, token))
-                {
-                    tokenizer.setError("Expected a : after symbol "~memberToken.str ~ "on line "~to!string(tokenizer.line));
-                    return HipDDFToken.error;
-                }
+                    return tokenizer.setError("Expected a : after symbol "~memberToken.str ~ "on line "~to!string(tokenizer.line));
                 token = getToken(tokenizer);
                 //Here could possibly be any value
                 HipDDFVarInternal tempVar;
@@ -425,7 +448,7 @@ HipDDFToken parseStruct(ref HipDDFVarInternal variable, HipDDFToken token, HipDD
         variable.value~=")";
         return token;
     }
-    return HipDDFToken("", HipDDFTokenType.error);
+    return tokenizer.setError("Could not parse struct with token: "~token.toString);
 }
 
 /**
@@ -434,7 +457,8 @@ HipDDFToken parseStruct(ref HipDDFVarInternal variable, HipDDFToken token, HipDD
 */
 HipDDFToken parseType(ref HipDDFVarInternal variable, HipDDFToken token, HipDDFTokenizer* tokenizer)
 {
-    assert(token.type == HipDDFTokenType.symbol, "Tried to parse a non type token: "~token.toString);
+    if(token.type != HipDDFTokenType.symbol)
+        return tokenizer.setError("Tried to parse a non type token: "~token.toString);
     variable.type = token.str;
     for(;;)
     {
@@ -452,27 +476,30 @@ HipDDFToken parseType(ref HipDDFVarInternal variable, HipDDFToken token, HipDDFT
                 {
                     variable.type~= "["~token.str;
                     variable.length = to!uint(token.str);
-                    assert(requireToken(tokenizer, HipDDFTokenType.closeSquareBrackets, token), "Expected ], received "~token.toString);
+                    if(!requireToken(tokenizer, HipDDFTokenType.closeSquareBrackets, token))
+                        return tokenizer.setError("Expected ], received "~token.toString);
                     variable.type~="]";
                     variable.isArray = true;
                 }
                 else if(token.type == HipDDFTokenType.symbol)
                 {
                     variable.type~= "["~token.str;
-                    assert(requireToken(tokenizer, HipDDFTokenType.closeSquareBrackets, token), "Expected ], received "~token.toString);
+                    if(!requireToken(tokenizer, HipDDFTokenType.closeSquareBrackets, token))
+                        return tokenizer.setError("Expected ], received "~token.toString);
                     variable.type~="]";
                     variable.isAssociativeArray = true;
                 }
-                assert(token.type == HipDDFTokenType.closeSquareBrackets, "Expected ], received "~token.toString);
-                assert(requireToken(tokenizer, HipDDFTokenType.symbol, token), "Expected a variable name, received "~token.toString);
+                if(token.type != HipDDFTokenType.closeSquareBrackets)
+                    return tokenizer.setError("Expected ], received "~token.toString);
+                if(!requireToken(tokenizer, HipDDFTokenType.symbol, token))
+                    return tokenizer.setError("Expected a variable name, received "~token.toString);
                 return token;
             case HipDDFTokenType.symbol:
                 return token;
             default: 
-                assert(0, "Error occurred with token " ~ token.toString);
+                return tokenizer.setError("Error occurred with token " ~ token.toString);
         }
     }
-    assert(0, "Unknown error occurred: "~token.toString);
 }
 
 
@@ -511,19 +538,22 @@ struct HipDDFVarInternal
     pure string toString() const {return type~" "~symbol~" = "~value;}
     pure string getKeyType() const
     {
-        if(!isAssociativeArray || type == "") return "";
-        int i = cast(int)type.length - 1;
-        while(type[i] != '['){i--;}
-
-        return type[i+1..$-1];
+        if((isArray || isAssociativeArray) && type != "")
+        {
+            int i = cast(int)type.length - 1;
+            while(type[i] != '['){i--;}
+            return type[i+1..$-1];
+        }
+        return "";
     }
     pure string getValueType() const
     {
-        if(!isAssociativeArray || type == "") return "";
-        int i = cast(int)type.length - 1;
-        while(type[i] != '['){i--;}
-
-        return type[0..i];
+        if((isArray || isAssociativeArray) && type != "")
+        {
+            int i = cast(int)type.length - 1;
+            while(type[i] != '['){i--;}
+            return type[0..i];
+        } return "";
     }
 }
 
@@ -552,10 +582,10 @@ shared static this()
         {
             HipDDFToken tk;
             if(!requireToken(tokenizer, HipDDFTokenType.symbol, tk))
-                tokenizer.setError("Expected symbol after struct keyword, received "~tk.toString);
+                return tokenizer.setError("Expected symbol after struct keyword, received "~tk.toString);
             string structName = tk.str;
             if(!requireToken(tokenizer, HipDDFTokenType.openCurlyBrackets, tk))
-                tokenizer.setError("Expected '{', received "~tk.toString);
+                return tokenizer.setError("Expected '{', received "~tk.toString);
             HipDDFStruct structure;
             structure.name = structName;
             while(tk.type != HipDDFTokenType.closeCurlyBrackets)
@@ -564,21 +594,16 @@ shared static this()
                 string sym;
                 if(!requireToken(tokenizer, HipDDFTokenType.symbol, tk))
                 {
-                    tokenizer.setError("Expected type, received "~tk.toString);
+                    if(!tk.type == HipDDFTokenType.closeCurlyBrackets)
+                        return tokenizer.setError("Expected type name, received "~tk.toString);
                     break;
                 }
                 type = tk.str;
                 if(!requireToken(tokenizer, HipDDFTokenType.symbol, tk))
-                {
-                    tokenizer.setError("Expected symbol declaration after type, received "~tk.toString);
-                    break;
-                }
+                    return tokenizer.setError("Expected symbol declaration after type, received "~tk.toString);
                 sym = tk.str;
                 if(!requireToken(tokenizer, HipDDFTokenType.semicolon, tk))
-                {
-                    tokenizer.setError("Expected ';', received " ~tk.toString);
-                    break;
-                }
+                    return tokenizer.setError("Expected ';', received " ~tk.toString);
                 structure.types~= type;
                 structure.symbols~= sym;
             }
@@ -617,16 +642,28 @@ pragma(inline) bool isLiteral(HipDDFTokenType type) pure nothrow @safe @nogc
 {
     return type == HipDDFTokenType.numberLiteral || type == HipDDFTokenType.stringLiteral;
 }
+
+pragma(inline) bool isValueSyntax(HipDDFTokenType type) pure nothrow @safe @nogc
+{
+    return type.isLiteral ||  //"string" 4938
+           type == HipDDFTokenType.symbol || //Struct/Any
+           type == HipDDFTokenType.openCurlyBrackets || //Struct
+           type == HipDDFTokenType.openSquareBrackets; //Array
+}
 pragma(inline) bool isAssociativeArraySyntax(HipDDFTokenType type) pure nothrow @safe @nogc
 {
-    return type.isLiteral || type == HipDDFTokenType.colon || type == HipDDFTokenType.comma;
-}
-pragma(inline) bool isArraySyntax(HipDDFTokenType type) pure nothrow @safe @nogc
-{
-    return type.isLiteral  || type == HipDDFTokenType.comma;
+    return type.isValueSyntax || type == HipDDFTokenType.colon || type == HipDDFTokenType.comma;
 }
 
-private T stringToStruct(T)(HipDDFStruct structure, string str)
+pragma(inline) bool isArraySyntax(HipDDFTokenType type) pure nothrow @safe @nogc
+{
+    return type.isValueSyntax ||
+    type == HipDDFTokenType.comma ||
+    // type == HipDDFTokenType.openParenthesis || //
+    type == HipDDFTokenType.symbol;
+}
+
+private T stringToStruct(T)(HipDDFStruct structure, string str) pure
 {
     int typeIndex = 0;
     static foreach(m; __traits(allMembers,  T))
@@ -663,6 +700,108 @@ private T stringToStruct(T)(HipDDFStruct structure, string str)
     return ret;
 }
 
+
+/**
+*   Given an array like [[5, 2, 3], [1, 2, 3]]
+*   It will find the matching close character
+*/
+pure nothrow @nogc @safe
+int findMatchingCharacter(string str, char open, char close, int start)
+{
+    int count = 0;
+    for(int i = start; i < str.length; i++)
+    {
+        if(str[i] == open)
+            count++;
+        else if(str[i] == close)
+        {
+            count--;
+            if(count == 0)
+                return i;
+            else if(count < 0)
+                return -1;
+        }
+    }
+    return -1;
+}
+
+
+alias ForeachValueExec = pure void delegate(string);
+/**
+*   Returns if the foreach executed successful
+*/
+pure bool foreachValueOnArrayStringified(string arrayString, char open, char close, ForeachValueExec execute)
+{
+    for(int i = 1; i < cast(int)arrayString.length - 1; i++)
+    {
+        if(arrayString[i] == open)
+        {
+            int newI = findMatchingCharacter(arrayString, open, close, i);
+            if(newI == -1)
+                return false;
+            //Use that for using slices to be memory efficient
+            execute(arrayString[i..newI+1]);
+            i = newI;
+        }
+    }
+    return true;
+}
+
+/**
+*   This function may return a struct in the format Vector2(0,0)
+*   A string literal "hello world"
+*   Or a number 123456
+*/
+pure string getValueFromString(string aa, int start, out int next)
+{
+    if(start >= aa.length)
+    {
+        next = -1;
+        return "";
+    }
+    if(aa[start] == '(') //Symbol
+    {
+        int newI = findMatchingCharacter(aa, '(', ')', start);
+        string ret = aa[start..++newI];
+        next = newI;
+        return ret;
+    }
+    else if(aa[start].isNumeric) //Number
+    {
+        int newI = start;
+        while(aa[newI].isNumeric)
+            newI++;
+        string ret = aa[start..newI];
+        next = newI;
+        return ret;
+    }
+    else if(aa[start] == '"') //String
+    {
+        int newI = start+1;
+        while(aa[newI] != '"')
+        {
+            if(aa[newI] == '\\')
+                newI++;
+            newI++;
+        }
+        newI++;//Include the '"'
+
+        string ret = aa[start+1..newI-1];
+        next = newI;
+        return ret;
+    }
+    else if(aa[start] == '[') //Array of anything
+    {
+        //It means we need to search firstly for the (
+        int newI = findMatchingCharacter(aa, '[', ']', start);
+        string ret = aa[start+1..newI];
+        next = newI;
+        return ret;
+    }
+    next = -1;
+    return "";
+}
+
 pure
 {
     //Var value
@@ -694,10 +833,8 @@ pure
             {
                 assert(v.isArray,  "Tried to get an array of type "~T.stringof~" from HipDDF which is not an array: '"~v.toString~"'");
                 T ret;
-                string stringVal = "";
-                int i = 1;
-                int index = 0;
                 //Means that the array has same value on every index
+
                 if(v.value[$-1] != ']')
                 {
                     static if(isStaticArray!T)
@@ -706,19 +843,41 @@ pure
                         assert(0, "Tried to assign a single value to a dynamic array");
                 }
                 //Parse the values  
-                else while(i < cast(int)v.value.length - 1)
+                else
                 {
-                    if(v.value[i] == ',')
+                    //Parse struct arrays
+                    static if(is(T == U[], U) && is(U == struct))
                     {
-                        if(stringVal)
+                        bool success = foreachValueOnArrayStringified(v.value, '(', ')', (string strucStr)
                         {
-                            static if(!isStaticArray!T)
-                                ret.length++;
-                            ret[index++] = to!(typeof(T.init[0]))(stringVal);
-                        }
-                        stringVal = "";
+                            ret~= stringToStruct!U(obj.structs[U.stringof], strucStr);
+                        });
+                        assert(success, "Wrong struct formatting?"~v.value);
                     }
-                    i++;
+                    else //Parse simple values on static and dynamic arrays
+                    {
+                        int i = 1;
+                        int index = 0;
+                        string stringVal = "";
+
+                        while(i < cast(int)v.value.length - 1)
+                        {
+                            if(v.value[i] == ',')
+                            {
+                                if(stringVal)
+                                {
+                                    static if(!isStaticArray!T)
+                                        ret.length++;
+                                    else
+                                        ret[index++] = to!(typeof(T.init[0]))(stringVal);
+                                }
+                                stringVal = "";
+                            }
+                            else
+                                stringVal~= v.value[i];
+                            i++;
+                        }
+                    }
                 }
                 return ret;
             }
@@ -732,32 +891,30 @@ pure
                 T ret;
                 scope void insertAA()
                 {
-                    ret[to!(KeyType!T)(keyString)] = to!(ValueType!T)(valueString);
+                    static if(is(T == V[K], K, V))
+                    {
+                        ret[to!(K)(keyString)] = stringToStruct!V(obj.structs[V.stringof], valueString);
+                    }
+                    else
+                        ret[to!(KeyType!T)(keyString)] = to!(ValueType!T)(valueString);
                     keyString = "";
                     valueString = "";
                 }
-                while(i < cast(int)v.value.length - 1)
+
+                int next;
+                int start = 1;
+                while(next != -1)
                 {
-                    switch(v.value[i])
-                    {
-                        case ',':
-                            isCheckingForKey = true;
-                            insertAA();
-                            break;
-                        case ':':
-                            isCheckingForKey = false;
-                            break;
-                        default:
-                            if(isCheckingForKey)
-                                keyString~=v.value[i];
-                            else
-                                valueString~=v.value[i];
-                            break;
-                    }
-                    i++;
-                }
-                if(keyString && valueString)
+                    keyString = getValueFromString(v.value, start, next);
+                    if(next == -1)
+                        break;
+                    start = ++next;//Remove the ':'
+                    valueString = getValueFromString(v.value, start, next);
+                    if(next == -1)
+                        break;
+                    start = ++next;//Remove the ','
                     insertAA();
+                }
                 return ret;
             }
             else static if(is(T == struct))

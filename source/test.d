@@ -12,9 +12,11 @@ struct Vector2
 void main()
 {
     HipDDFObject obj = parseHipDDF(HipDDFSample);
-    writeln(obj.get!(string)("multiLineStringTest"));
-    writeln(obj.get!(int[string])("testAA"));
-    writeln(obj.get!(int)("lineCheckerTest"));
-    writeln(obj.get!(string)("filename"));
-    writeln(obj.get!(Vector2)("v3"));
+    // writeln(obj.get!(Vector2[])("vArr2"));
+    writeln(obj.get!(Vector2[string])("testAAStruc"));
+    // writeln(obj.get!(string)("multiLineStringTest"));
+    // writeln(obj.get!(int[string])("testAA"));
+    // writeln(obj.get!(int)("lineCheckerTest"));
+    // writeln(obj.get!(string)("filename"));
+    // writeln(obj.get!(Vector2)("v3"));
 }

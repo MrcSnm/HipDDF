@@ -67,14 +67,18 @@ void main()
     - __FILE__ and __LINE__
     - Assign variable to an existing symbol (order of definition matters)
     - Define structs and assign them
+    - Struct literals
+    - Associative array with structs
+    - Array of structs
   
-#### Current Version: 0.5
+#### Current Version: 1.0
 
 ## Planned Features:
     0.2 : Associative array support
     0.3 : __LINE__ and __FILE__(?)
     0.4 : Self reference values
     0.5 : Structs definitions
-    0.6 : Concatenation support for string and arrays
-    1.0 : Aliases 
-    1.1 : Arithmetic operations
+    1.0 : Struct lierals, associative array, array of structs
+    1.1 : Array of arrays
+    1.2 : Arithmetic operations
+    1.3 : Concatenation support for string and arrays
